@@ -976,6 +976,75 @@ def aplicar_validacion_epicas(df_merged: pd.DataFrame) -> pd.DataFrame | None:
 
 
 # =============================================================================
+# FORMATEO DE EXCEL PARA EXPORTACIONES
+# =============================================================================
+
+def _formatear_excel(writer, df, sheet_name, columna_color=None):
+    """
+    Aplica formato al Excel exportado:
+    - Auto-ajuste de columnas
+    - Header con fondo oscuro y texto blanco
+    - Freeze en primera fila
+    - Bordes finos
+    - Color condicional en la columna especificada
+    """
+    from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+    from openpyxl.utils import get_column_letter
+
+    ws = writer.sheets[sheet_name]
+
+    # Auto-ajuste de columnas
+    for i, col in enumerate(df.columns, 1):
+        max_len = max(
+            df[col].astype(str).str.len().max(),
+            len(str(col)),
+        )
+        ws.column_dimensions[get_column_letter(i)].width = min(max_len + 3, 50)
+
+    # Header
+    header_fill = PatternFill("solid", fgColor="1e293b")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_align = Alignment(horizontal="center", vertical="center")
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_align
+
+    # Freeze
+    ws.freeze_panes = "A2"
+
+    # Bordes finos
+    thin = Side(style="thin", color="cbd5e1")
+    border = Border(top=thin, bottom=thin, left=thin, right=thin)
+    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=ws.max_column):
+        for cell in row:
+            cell.border = border
+            if cell.alignment and not cell.alignment.horizontal:
+                cell.alignment = Alignment(vertical="center")
+
+    # Color condicional en columna de estado
+    if columna_color and columna_color in df.columns:
+        col_idx = list(df.columns).index(columna_color) + 1
+        colores = {
+            "OK": PatternFill("solid", fgColor="ecfdf5"),
+            "Revisar": PatternFill("solid", fgColor="eff6ff"),
+            "Falta": PatternFill("solid", fgColor="fef3c7"),
+            "Sobra": PatternFill("solid", fgColor="fee2e2"),
+            "Actualizar": PatternFill("solid", fgColor="fef2f2"),
+            "Epica sin": PatternFill("solid", fgColor="fef3c7"),
+            "Tarea sin": PatternFill("solid", fgColor="fef3c7"),
+            "Todas": PatternFill("solid", fgColor="eff6ff"),
+        }
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=col_idx)
+            val = str(cell.value or "")
+            for prefix, fill in colores.items():
+                if val.startswith(prefix):
+                    cell.fill = fill
+                    break
+
+
+# =============================================================================
 # SIDEBAR: CARGA DE ARCHIVOS
 # =============================================================================
 
@@ -1343,15 +1412,31 @@ if modo == "Conciliacion BMC vs Jira":
                     st.session_state.df_resultado, COLUMNAS_PREVIEW_ACCIONES
                 )
                 df_preview = st.session_state.df_resultado[cols_preview]
-                styled = (
-                    df_preview.head(20)
-                    .style.map(_color_accion, subset=[COL_ACCION_SUGERIDA])
-                )
-                st.dataframe(styled, use_container_width=True)
-                st.caption(
-                    "Primeras 20 filas — columnas clave. "
-                    "Usa la pestana **Resultados** para el detalle completo."
-                )
+
+                df_no_ok = df_preview[~df_preview[COL_ACCION_SUGERIDA].str.startswith("OK", na=False)]
+                if df_no_ok.empty:
+                    st.success("Todas las acciones estan OK — sin correcciones requeridas.")
+                else:
+                    styled = df_no_ok.style.map(
+                        _color_accion, subset=[COL_ACCION_SUGERIDA]
+                    )
+                    st.dataframe(styled, use_container_width=True, height=400)
+                    st.caption(
+                        f"{df_no_ok.shape[0]:,} registros con acciones requeridas. "
+                        "Usa la pestana **Resultados** para el detalle completo."
+                    )
+
+                    buf_acciones = BytesIO()
+                    with pd.ExcelWriter(buf_acciones, engine="openpyxl") as w:
+                        df_no_ok.to_excel(w, index=False, sheet_name="Acciones_Pendientes")
+                        _formatear_excel(w, df_no_ok, "Acciones_Pendientes", columna_color=COL_ACCION_SUGERIDA)
+                    st.download_button(
+                        label="\U0001F4E5 Descargar acciones pendientes (.xlsx)",
+                        data=buf_acciones.getvalue(),
+                        file_name="acciones_pendientes_conciliacion.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_acciones_tab2",
+                    )
         else:
             if st.session_state.df_bmc_total is None:
                 pass  # ya se muestra arriba
@@ -1432,6 +1517,7 @@ if modo == "Conciliacion BMC vs Jira":
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
                 df_filtrado.to_excel(writer, index=False, sheet_name="Conciliacion")
+                _formatear_excel(writer, df_filtrado, "Conciliacion", columna_color=COL_ACCION_SUGERIDA)
 
             dl_col, _ = st.columns([1, 3])
             with dl_col:
@@ -1604,6 +1690,7 @@ elif modo == "Validacion Epicas vs Tareas":
                     buf_tab2 = BytesIO()
                     with pd.ExcelWriter(buf_tab2, engine="openpyxl") as w:
                         df_no_ok.to_excel(w, index=False, sheet_name="Validacion_Epicas")
+                        _formatear_excel(w, df_no_ok, "Validacion_Epicas", columna_color=COL_VALIDACION_EPICAS)
                     st.download_button(
                         label="\U0001F4E5 Descargar solo pendientes (.xlsx)",
                         data=buf_tab2.getvalue(),
@@ -1662,6 +1749,7 @@ elif modo == "Validacion Epicas vs Tareas":
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
                 df_filt.to_excel(writer, index=False, sheet_name="Validacion_Epicas")
+                _formatear_excel(writer, df_filt, "Validacion_Epicas", columna_color=COL_VALIDACION_EPICAS)
 
             dl_col, _ = st.columns([1, 3])
             with dl_col:
