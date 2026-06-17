@@ -10,21 +10,31 @@ from io import BytesIO
 
 # BMC - Work Orders
 COL_WO_ID = "WorkOrderID"
-COL_WO_SUMMARY = "Summary"
+COL_WO_SUMMARY = "Titulo de WO"
 COL_WO_STATUS = "Status"
 COL_WO_PRIORITY = "Priority"
 
 # BMC - Problemas (PBI)
 COL_PBI_ID = "ProblemID"
-COL_PBI_SUMMARY = "Summary"
+COL_PBI_SUMMARY = "Descripcion"
 COL_PBI_STATUS = "Status"
 
 # Jira
-COL_JIRA_KEY = "Key"
+COL_JIRA_KEY = "Clave"
 COL_JIRA_SUMMARY = "Summary"
 COL_JIRA_STATUS = "Status"
 COL_JIRA_ISSUE_TYPE = "IssueType"
 COL_JIRA_ASSIGNEE = "Persona asignada"
+COL_JIRA_INFORMADOR = "Informador"
+
+# BMC - Usuario / Asignado (nombres segun reporte de origen)
+COL_BMC_ASIG_WO = "Asignatario Experto"
+COL_BMC_ASIG_PBI = "Usuario_Asignado"
+
+# BMC - Grupo Asignado (nombres segun reporte de origen)
+# El campo de grupo en WO usa un prefijo select__ seguido de un ID numerico variable.
+# Se detecta dinamicamente en tiempo de ejecucion.
+COL_BMC_GRUPO_PBI = "Grupo_Asignado"
 
 # --- Fase 2: Transformacion y cruce ---
 
@@ -46,16 +56,55 @@ COL_ORIGEN = "Origen_BMC"
 
 # --- Fase 3: Reglas de negocio y exportacion ---
 
-COL_ACCION_SUGERIDA = "Acción Sugerida"
+COL_ACCION_SUGERIDA = "ACCIÓN SUGERIDA"
 COL_MERGE = "_merge"
+COL_CELULA = "CELULA"
+
+# --- Columnas de salida del reporte (todas en mayusculas) ---
+COL_TITULO_BMC = "TITULO DE BMC"
+COL_TECNICO_ASIGNADO = "TECNICO ASIGNADO"
+COL_GRUPO_ASIGNADO = "GRUPO ASIGNADO"
+COL_OUT_CLAVE = "CLAVE"
+COL_RESUMEN = "RESUMEN"
+COL_CATEGORIA_ESTADO = "CATEGORIA DE ESTADO"
+COL_PERSONA_ASIGNADA = "PERSONA ASIGNADA"
+COL_PROCESO = "PROCESO"
+COL_ESTADO_PROPUESTA = "ESTADO PROPUESTA"
+
+# Nombres de columnas fuente para campos adicionales
+COL_SRC_ESTADO_PROPUESTA = "Estado propuesta"
+COL_SRC_PROCESO = "Proceso"
+COL_SRC_CATEGORIA_ESTADO = "Categoría de estado"
+COL_SRC_CELULA = "Célula"
+
+# Orden de columnas del reporte final Resultado_Conciliacion
+COLUMNAS_OUTPUT = [
+    COL_BMC_ID,
+    COL_TITULO_BMC,
+    COL_ESTADO_BMC,
+    COL_ESTADO_PROPUESTA,
+    COL_TECNICO_ASIGNADO,
+    COL_PROCESO,
+    COL_GRUPO_ASIGNADO,
+    COL_OUT_CLAVE,
+    COL_RESUMEN,
+    COL_CATEGORIA_ESTADO,
+    COL_ESTADO_JIRA,
+    COL_PERSONA_ASIGNADA,
+    COL_CELULA,
+    COL_ACCION_SUGERIDA,
+]
 
 # Columnas practicas para el preview de Acciones Sugeridas
 COLUMNAS_PREVIEW_ACCIONES = [
     COL_BMC_ID,
-    COL_JIRA_KEY,
+    COL_OUT_CLAVE,
     COL_ESTADO_BMC,
     COL_ESTADO_JIRA,
-    COL_JIRA_ASSIGNEE,
+    COL_TECNICO_ASIGNADO,
+    COL_PERSONA_ASIGNADA,
+    COL_GRUPO_ASIGNADO,
+    COL_CELULA,
     COL_ACCION_SUGERIDA,
 ]
 
@@ -73,6 +122,7 @@ EQUIVALENCIAS = {
     "Análisis Técnico": ["Backlog", "Por hacer", "Tareas por hacer", "En progreso", "Stand By"],
     "Cambio Creado": ["En progreso", "Stand By", "Tareas por hacer"],
     "En ejecución": ["En progreso", "Stand By", "Tareas por hacer"],
+    "En curso": ["En progreso", "Stand By", "Tareas por hacer"],
     "Finalizada": ["Finalizada", "Listo", "Cancelado"],
     "Pendiente Aprobación del negocio": ["Stand By", "Tareas por hacer", "En progreso"],
     "registrado": ["Backlog"],
@@ -90,13 +140,35 @@ COL_TAREAS_CERRADAS = "Tareas Cerradas"
 COL_ESTADOS_TAREAS = "Estados Tareas"
 COL_VALIDACION_EPICAS = "Validacion Epica"
 COL_CANT_SPRINTS = "Cantidad de Sprints"
-COL_CELULA = "Célula"
+COL_ASIGNADO_TAREAS = "Asignado tareas"
 
 COL_SPRINT_CANDIDATOS = ["Sprint", "Sprints", "Sprint ID", "Iteracion"]
 
 ESTADOS_FINALES_EPICA = [
     "Done", "Closed", "Finalizada", "Finalizado",
     "Cancelado", "Cancelada", "Cancelled", "Listo",
+]
+
+# Orden de columnas del reporte final validacion_epicas
+COLUMNAS_OUTPUT_EPICAS = [
+    COL_TIPO_INCIDENCIA,
+    COL_CLAVE_JIRA,
+    "Resumen",
+    "Prioridad",
+    "Componentes",
+    COL_ESTADO,
+    "Creada",
+    "Resuelta",
+    "Célula",
+    COL_BMC_ID,
+    COL_JIRA_ASSIGNEE,
+    COL_ASIGNADO_TAREAS,
+    COL_TAREAS_TOTAL,
+    COL_TAREAS_ABIERTAS,
+    COL_TAREAS_CERRADAS,
+    COL_ESTADOS_TAREAS,
+    COL_CANT_SPRINTS,
+    COL_VALIDACION_EPICAS,
 ]
 
 
@@ -556,15 +628,27 @@ def mostrar_resumen(df: pd.DataFrame, label: str) -> None:
 # FASE 2: TRANSFORMACION Y CRUCE DE DATOS
 # =============================================================================
 
-def _resolver_columnas(df: pd.DataFrame, columnas_deseadas: list[str]) -> list[str]:
+def _resolver_columnas(
+    df: pd.DataFrame,
+    columnas_deseadas: list[str],
+    suffix_prefs: dict[str, str] | None = None,
+) -> list[str]:
     """
     Devuelve las columnas de 'columnas_deseadas' que existen en el DataFrame,
     probando con sufijos _BMC / _JIRA si el nombre exacto no se encuentra.
+
+    'suffix_prefs' permite indicar un sufijo preferido por columna
+    (ej. {COL_JIRA_ASSIGNEE: \"_JIRA\"}) para resolver ambiguedades
+    cuando el merge genero versiones con ambos sufijos.
     """
+    suffix_prefs = suffix_prefs or {}
     disponibles = []
     for col in columnas_deseadas:
+        pref = suffix_prefs.get(col)
         if col in df.columns:
             disponibles.append(col)
+        elif pref and f"{col}{pref}" in df.columns:
+            disponibles.append(f"{col}{pref}")
         elif f"{col}_BMC" in df.columns:
             disponibles.append(f"{col}_BMC")
         elif f"{col}_JIRA" in df.columns:
@@ -580,6 +664,170 @@ def _resolver_columnas(df: pd.DataFrame, columnas_deseadas: list[str]) -> list[s
             )
 
     return disponibles
+
+
+def _encontrar_columna_merged(df: pd.DataFrame, nombre_col: str) -> str | None:
+    """Busca una columna en el DataFrame post-merge, probando sufijos _BMC / _JIRA."""
+    if nombre_col in df.columns:
+        return nombre_col
+    if f"{nombre_col}_BMC" in df.columns:
+        return f"{nombre_col}_BMC"
+    if f"{nombre_col}_JIRA" in df.columns:
+        return f"{nombre_col}_JIRA"
+    return None
+
+
+def _detectar_columna_select(df: pd.DataFrame) -> str | None:
+    """Busca la primera columna que coincida con el patron select__<numero> (admite sufijo _BMC)."""
+    import re
+    for col in df.columns:
+        if re.match(r"^select__(\d+)(_BMC)?$", col):
+            return re.sub(r"_BMC$", "", col)
+    return None
+
+
+def _agregar_columnas_conciliacion(df_merge: pd.DataFrame) -> pd.DataFrame:
+    """
+    Agrega las columnas unificadas y detecta las de fuente necesarias
+    para el reporte final Resultado_Conciliacion.
+
+    Unifica:
+    - TECNICO ASIGNADO: coalesce de 'Asignatario Experto' (WO) y 'Usuario_Asignado' (PBI).
+    - GRUPO ASIGNADO: coalesce del select__XXXX (WO, detectado dinamicamente) y 'Grupo_Asignado' (PBI).
+    - TITULO DE BMC: Summary del lado BMC (Summary_BMC tras el merge).
+
+    Detecta del fuente:
+    - ESTADO PROPUESTA ('Estado propuesta' en WO)
+    - PROCESO ('Proceso' en WO)
+    - CATEGORIA DE ESTADO ('Categoría de estado' en Jira)
+
+    Las columnas no encontradas se rellenan con cadena vacia.
+    """
+    df = df_merge.copy()
+
+    # --- TECNICO ASIGNADO ---
+    col_wo_user = _encontrar_columna_merged(df, COL_BMC_ASIG_WO)
+    col_pbi_user = _encontrar_columna_merged(df, COL_BMC_ASIG_PBI)
+
+    if col_wo_user and col_pbi_user:
+        df[COL_TECNICO_ASIGNADO] = df[col_wo_user].fillna(df[col_pbi_user])
+    elif col_wo_user:
+        df[COL_TECNICO_ASIGNADO] = df[col_wo_user]
+    elif col_pbi_user:
+        df[COL_TECNICO_ASIGNADO] = df[col_pbi_user]
+    else:
+        df[COL_TECNICO_ASIGNADO] = ""
+
+    # --- GRUPO ASIGNADO ---
+    # Detectar select__ dinamicamente
+    col_wo_grupo_select = _detectar_columna_select(df)
+    col_wo_grupo = _encontrar_columna_merged(df, col_wo_grupo_select) if col_wo_grupo_select else None
+    col_pbi_grupo = _encontrar_columna_merged(df, COL_BMC_GRUPO_PBI)
+
+    if col_wo_grupo and col_pbi_grupo:
+        df[COL_GRUPO_ASIGNADO] = df[col_wo_grupo].fillna(df[col_pbi_grupo])
+    elif col_wo_grupo:
+        df[COL_GRUPO_ASIGNADO] = df[col_wo_grupo]
+    elif col_pbi_grupo:
+        df[COL_GRUPO_ASIGNADO] = df[col_pbi_grupo]
+    else:
+        df[COL_GRUPO_ASIGNADO] = ""
+
+    # --- TITULO DE BMC (coalesce de WO 'Titulo de WO' y PBI 'Descripcion') ---
+    col_wo_title = _encontrar_columna_merged(df, COL_WO_SUMMARY)
+    col_pbi_title = _encontrar_columna_merged(df, COL_PBI_SUMMARY)
+
+    if col_wo_title and col_pbi_title:
+        df[COL_TITULO_BMC] = df[col_wo_title].fillna(df[col_pbi_title])
+    elif col_wo_title:
+        df[COL_TITULO_BMC] = df[col_wo_title]
+    elif col_pbi_title:
+        df[COL_TITULO_BMC] = df[col_pbi_title]
+    else:
+        df[COL_TITULO_BMC] = ""
+
+    # --- Columnas fuente adicionales ---
+
+    # ESTADO PROPUESTA (desde WO)
+    col_ep = _encontrar_columna_merged(df, COL_SRC_ESTADO_PROPUESTA)
+    if col_ep:
+        df[COL_ESTADO_PROPUESTA] = df[col_ep]
+    else:
+        df[COL_ESTADO_PROPUESTA] = ""
+
+    # PROCESO (desde WO)
+    col_proc = _encontrar_columna_merged(df, COL_SRC_PROCESO)
+    if col_proc:
+        df[COL_PROCESO] = df[col_proc]
+    else:
+        df[COL_PROCESO] = ""
+
+    # CATEGORIA DE ESTADO (desde Jira)
+    col_cat = _encontrar_columna_merged(df, COL_SRC_CATEGORIA_ESTADO)
+    if col_cat:
+        df[COL_CATEGORIA_ESTADO] = df[col_cat]
+    else:
+        df[COL_CATEGORIA_ESTADO] = ""
+
+    # --- Columnas desde Jira ---
+
+    # CLAVE (JIRA)
+    col_key_jira = _encontrar_columna_merged(df, COL_JIRA_KEY)
+    if col_key_jira:
+        df[COL_OUT_CLAVE] = df[col_key_jira]
+    else:
+        df[COL_OUT_CLAVE] = ""
+
+    # RESUMEN (Jira)
+    col_summary_jira = _encontrar_columna_merged(df, COL_JIRA_SUMMARY)
+    if col_summary_jira:
+        df[COL_RESUMEN] = df[col_summary_jira]
+    else:
+        df[COL_RESUMEN] = ""
+
+    # PERSONA ASIGNADA (Jira)
+    col_assignee_jira = _encontrar_columna_merged(df, COL_JIRA_ASSIGNEE)
+    if col_assignee_jira:
+        df[COL_PERSONA_ASIGNADA] = df[col_assignee_jira]
+    else:
+        df[COL_PERSONA_ASIGNADA] = ""
+
+    # CELULA (desde fuente BMC o Jira)
+    col_celula = _encontrar_columna_merged(df, COL_SRC_CELULA)
+    if col_celula:
+        df[COL_CELULA] = df[col_celula]
+    else:
+        df[COL_CELULA] = ""
+
+    return df
+
+
+def _formatear_output_conciliacion(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Selecciona y ordena unicamente las columnas definidas en COLUMNAS_OUTPUT.
+    Las columnas que no existan en el DataFrame se agregan vacias.
+    """
+    resultado = pd.DataFrame()
+    for col in COLUMNAS_OUTPUT:
+        if col in df.columns:
+            resultado[col] = df[col].values
+        else:
+            resultado[col] = ""
+    return resultado
+
+
+def _formatear_output_epicas(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Selecciona y ordena unicamente las columnas definidas en COLUMNAS_OUTPUT_EPICAS.
+    Las columnas que no existan en el DataFrame se agregan vacias.
+    """
+    resultado = pd.DataFrame()
+    for col in COLUMNAS_OUTPUT_EPICAS:
+        if col in df.columns:
+            resultado[col] = df[col].values
+        else:
+            resultado[col] = ""
+    return resultado
 
 
 def _renombrar_columna_estado(df: pd.DataFrame, nombre_destino: str) -> str | None:
@@ -827,6 +1075,7 @@ def agrupar_tareas_por_parent(df_tareas: pd.DataFrame) -> pd.DataFrame | None:
     - tareas abiertas (estado no final)
     - tareas cerradas (estado final)
     - lista de estados unicos
+    - asignado mas frecuente
     """
     if df_tareas is None or df_tareas.empty:
         return None
@@ -856,6 +1105,11 @@ def agrupar_tareas_por_parent(df_tareas: pd.DataFrame) -> pd.DataFrame | None:
         if cand in df_tareas.columns:
             sprint_col = cand
             break
+
+    # Detectar columna de asignado
+    asignado_col = None
+    if COL_JIRA_ASSIGNEE in df_tareas.columns:
+        asignado_col = COL_JIRA_ASSIGNEE
 
     # --- Agregacion de estados ---
     def _agregar_estados(series):
@@ -891,6 +1145,24 @@ def agrupar_tareas_por_parent(df_tareas: pd.DataFrame) -> pd.DataFrame | None:
         )
         grouped = pd.merge(grouped, sprints_count, on=COL_CLAVE_JIRA, how="left")
         grouped[COL_CANT_SPRINTS] = grouped[COL_CANT_SPRINTS].fillna(0).astype(int)
+
+    # --- Asignado mas frecuente por parent ---
+    if asignado_col:
+        def _asignado_frecuente(series):
+            counts = series.dropna().value_counts()
+            return counts.index[0] if len(counts) > 0 else ""
+
+        asignado_count = (
+            df_tareas.groupby(COL_PARENT)[asignado_col]
+            .apply(_asignado_frecuente)
+            .reset_index()
+        )
+        asignado_count.rename(
+            columns={COL_PARENT: COL_CLAVE_JIRA, asignado_col: COL_ASIGNADO_TAREAS},
+            inplace=True,
+        )
+        grouped = pd.merge(grouped, asignado_count, on=COL_CLAVE_JIRA, how="left")
+        grouped[COL_ASIGNADO_TAREAS] = grouped[COL_ASIGNADO_TAREAS].fillna("")
 
     return grouped
 
@@ -1297,6 +1569,9 @@ if modo == "Conciliacion BMC vs Jira":
             st.session_state.df_resultado = aplicar_reglas_negocio(
                 st.session_state.df_merge
             )
+        st.session_state.df_resultado = _agregar_columnas_conciliacion(
+            st.session_state.df_resultado
+        )
     else:
         st.session_state.df_resultado = None
 
@@ -1409,7 +1684,8 @@ if modo == "Conciliacion BMC vs Jira":
 
             if st.session_state.df_resultado is not None:
                 cols_preview = _resolver_columnas(
-                    st.session_state.df_resultado, COLUMNAS_PREVIEW_ACCIONES
+                    st.session_state.df_resultado,
+                    COLUMNAS_PREVIEW_ACCIONES,
                 )
                 df_preview = st.session_state.df_resultado[cols_preview]
 
@@ -1487,6 +1763,8 @@ if modo == "Conciliacion BMC vs Jira":
             mostrados = df_filtrado.shape[0]
             st.caption(f"Mostrando **{mostrados:,}** de **{total:,}** registros")
 
+            df_output = _formatear_output_conciliacion(df_filtrado)
+
             # Dataframe estilizado
             def _color_fila_accion(val: str) -> str:
                 if val.startswith("OK"):
@@ -1501,7 +1779,7 @@ if modo == "Conciliacion BMC vs Jira":
                     return "background-color: #fef2f2; color: #b91c1c;"
                 return ""
 
-            styled_full = df_filtrado.style.map(
+            styled_full = df_output.style.map(
                 _color_fila_accion, subset=[COL_ACCION_SUGERIDA]
             ).format(precision=0, na_rep="—")
 
@@ -1516,8 +1794,8 @@ if modo == "Conciliacion BMC vs Jira":
             st.markdown("---")
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                df_filtrado.to_excel(writer, index=False, sheet_name="Conciliacion")
-                _formatear_excel(writer, df_filtrado, "Conciliacion", columna_color=COL_ACCION_SUGERIDA)
+                df_output.to_excel(writer, index=False, sheet_name="Conciliacion")
+                _formatear_excel(writer, df_output, "Conciliacion", columna_color=COL_ACCION_SUGERIDA)
 
             dl_col, _ = st.columns([1, 3])
             with dl_col:
@@ -1651,18 +1929,7 @@ elif modo == "Validacion Epicas vs Tareas":
             st.subheader("\U0001F9E0 Validacion de Epicas")
 
             if st.session_state.df_epic_resultado is not None:
-                cols_view = [
-                    COL_CLAVE_JIRA,
-                    COL_CELULA,
-                    COL_ESTADO,
-                    COL_TAREAS_TOTAL,
-                    COL_TAREAS_ABIERTAS,
-                    COL_TAREAS_CERRADAS,
-                    COL_CANT_SPRINTS,
-                    COL_ESTADOS_TAREAS,
-                    COL_VALIDACION_EPICAS,
-                ]
-                cols_ok = [c for c in cols_view if c in st.session_state.df_epic_resultado.columns]
+                cols_ok = [c for c in COLUMNAS_OUTPUT_EPICAS if c in st.session_state.df_epic_resultado.columns]
                 df_view = st.session_state.df_epic_resultado[cols_ok]
 
                 df_no_ok = df_view[~df_view[COL_VALIDACION_EPICAS].str.startswith("OK", na=False)]
@@ -1728,6 +1995,8 @@ elif modo == "Validacion Epicas vs Tareas":
                 f"**{st.session_state.df_epic_resultado.shape[0]:,}** registros"
             )
 
+            df_output = _formatear_output_epicas(df_filt)
+
             def _color_fila_validacion(v):
                 if v.startswith("OK"):
                     return "background-color: #ecfdf5; color: #065f46;"
@@ -1737,7 +2006,7 @@ elif modo == "Validacion Epicas vs Tareas":
                     return "background-color: #fef3c7; color: #92400e;"
                 return ""
 
-            styled_full = df_filt.style.map(
+            styled_full = df_output.style.map(
                 _color_fila_validacion, subset=[COL_VALIDACION_EPICAS]
             ).format(precision=0, na_rep="—")
 
@@ -1748,8 +2017,8 @@ elif modo == "Validacion Epicas vs Tareas":
             st.markdown("---")
             buffer = BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                df_filt.to_excel(writer, index=False, sheet_name="Validacion_Epicas")
-                _formatear_excel(writer, df_filt, "Validacion_Epicas", columna_color=COL_VALIDACION_EPICAS)
+                df_output.to_excel(writer, index=False, sheet_name="Validacion_Epicas")
+                _formatear_excel(writer, df_output, "Validacion_Epicas", columna_color=COL_VALIDACION_EPICAS)
 
             dl_col, _ = st.columns([1, 3])
             with dl_col:
