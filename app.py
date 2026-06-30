@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import hashlib
 from io import BytesIO
 
 from src.constants import (
@@ -9,7 +10,7 @@ from src.constants import (
     URL_EPICAS_JIRA, URL_TAREAS_JIRA,
     VERSION,
 )
-from src.io_utils import leer_archivo_subido
+from src.io_utils import leer_archivo_subido, leer_archivo_robusto
 from src.transform import (
     _resolver_columnas,
     _agregar_columnas_conciliacion,
@@ -37,6 +38,86 @@ from src.ui import (
     mostrar_resumen,
     badge_cargado,
 )
+
+
+# =============================================================================
+# CACHE: Funciones puras cacheadas para evitar reprocesamiento
+# =============================================================================
+
+@st.cache_data(show_spinner=False)
+def _leer_archivo_cache(file_bytes: bytes, filename: str) -> pd.DataFrame | None:
+    """Lee un archivo desde bytes (cacheados)."""
+    from io import BytesIO
+    buf = BytesIO(file_bytes)
+    buf.name = filename
+    try:
+        return leer_archivo_robusto(buf, sheet_name=0, permitir_fallback=True)
+    except Exception:
+        return None
+
+
+def _hash_bytes(data: bytes) -> str:
+    """Hash SHA-256 de bytes para usar como version en el cache."""
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+@st.cache_data(show_spinner=False)
+def _pipeline_conciliacion(
+    _hash_wo: str, df_wo_raw: pd.DataFrame | None,
+    _hash_pbi: str, df_pbi_raw: pd.DataFrame | None,
+    _hash_jira: str, df_jira_raw: pd.DataFrame | None,
+) -> dict:
+    """Ejecuta el pipeline de conciliacion y devuelve resultados cacheados."""
+    df_wo_norm = normalizar_bmc_wo(df_wo_raw) if df_wo_raw is not None else None
+    df_pbi_norm = normalizar_bmc_pbi(df_pbi_raw) if df_pbi_raw is not None else None
+    df_bmc_total = unificar_bmc(df_wo_norm, df_pbi_norm)
+    df_jira_norm = normalizar_jira(df_jira_raw)
+
+    if df_bmc_total is not None and df_jira_norm is not None:
+        df_merge = cruzar_bmc_jira(df_bmc_total, df_jira_norm)
+    else:
+        df_merge = None
+
+    if df_merge is not None:
+        df_resultado = aplicar_reglas_negocio(df_merge)
+        df_resultado = _agregar_columnas_conciliacion(df_resultado)
+    else:
+        df_resultado = None
+
+    return {
+        "df_bmc_total": df_bmc_total,
+        "df_merge": df_merge,
+        "df_resultado": df_resultado,
+    }
+
+
+@st.cache_data(show_spinner=False)
+def _pipeline_epicas(
+    _hash_epicas: str, df_epicas_raw: pd.DataFrame | None,
+    _hash_tareas: str, df_tareas_raw: pd.DataFrame | None,
+) -> dict:
+    """Ejecuta el pipeline de validacion de epicas y devuelve resultados cacheados."""
+    df_epicas_filt = filtrar_epicas(df_epicas_raw) if df_epicas_raw is not None else None
+    df_tareas_filt = filtrar_tareas(df_tareas_raw) if df_tareas_raw is not None else None
+    df_tareas_agg = agrupar_tareas_por_parent(df_tareas_filt, df_epicas_filt)
+
+    if df_epicas_filt is not None and df_tareas_agg is not None:
+        df_epic_merge = cruzar_epicas_con_tareas(df_epicas_filt, df_tareas_agg)
+    else:
+        df_epic_merge = None
+
+    if df_epic_merge is not None:
+        df_epic_resultado = aplicar_validacion_epicas(df_epic_merge)
+    else:
+        df_epic_resultado = None
+
+    return {
+        "df_epicas_filt": df_epicas_filt,
+        "df_tareas_filt": df_tareas_filt,
+        "df_tareas_agg": df_tareas_agg,
+        "df_epic_merge": df_epic_merge,
+        "df_epic_resultado": df_epic_resultado,
+    }
 
 # =============================================================================
 # CONFIGURACION DE PAGINA
@@ -237,38 +318,34 @@ if modo == "Conciliacion BMC vs Jira":
     else:
         st.session_state.df_jira = None
 
-    # --- Normalizacion y cruce ---
+    # --- Pipeline cacheado ---
 
-    df_wo_norm = (
-        normalizar_bmc_wo(st.session_state.df_bmc_wo, st)
-        if st.session_state.df_bmc_wo is not None
-        else None
-    )
-    df_pbi_norm = (
-        normalizar_bmc_pbi(st.session_state.df_bmc_pbi, st)
-        if st.session_state.df_bmc_pbi is not None
-        else None
-    )
-    st.session_state.df_bmc_total = unificar_bmc(df_wo_norm, df_pbi_norm)
-
-    df_jira_norm = normalizar_jira(st.session_state.df_jira, st)
-
-    if st.session_state.df_bmc_total is not None and df_jira_norm is not None:
-        st.session_state.df_merge = cruzar_bmc_jira(
-            st.session_state.df_bmc_total, df_jira_norm, st
-        )
-    else:
-        st.session_state.df_merge = None
-
-    if st.session_state.df_merge is not None:
-        with st.spinner("Aplicando reglas de negocio..."):
-            st.session_state.df_resultado = aplicar_reglas_negocio(
-                st.session_state.df_merge, st
+    if any([
+        st.session_state.df_bmc_wo is not None,
+        st.session_state.df_bmc_pbi is not None,
+        st.session_state.df_jira is not None,
+    ]):
+        with st.spinner("Procesando pipeline de conciliacion..."):
+            resultado = _pipeline_conciliacion(
+                _hash_wo="0" if st.session_state.df_bmc_wo is None else _hash_bytes(
+                    archivo_bmc_wo.getvalue() if archivo_bmc_wo else b""
+                ),
+                df_wo_raw=st.session_state.df_bmc_wo,
+                _hash_pbi="0" if st.session_state.df_bmc_pbi is None else _hash_bytes(
+                    archivo_bmc_pbi.getvalue() if archivo_bmc_pbi else b""
+                ),
+                df_pbi_raw=st.session_state.df_bmc_pbi,
+                _hash_jira="0" if st.session_state.df_jira is None else _hash_bytes(
+                    archivo_jira.getvalue() if archivo_jira else b""
+                ),
+                df_jira_raw=st.session_state.df_jira,
             )
-        st.session_state.df_resultado = _agregar_columnas_conciliacion(
-            st.session_state.df_resultado
-        )
+        st.session_state.df_bmc_total = resultado["df_bmc_total"]
+        st.session_state.df_merge = resultado["df_merge"]
+        st.session_state.df_resultado = resultado["df_resultado"]
     else:
+        st.session_state.df_bmc_total = None
+        st.session_state.df_merge = None
         st.session_state.df_resultado = None
 
     # =============================================================================
@@ -400,7 +477,7 @@ if modo == "Conciliacion BMC vs Jira":
         else:
             if st.session_state.df_bmc_total is None:
                 pass
-            elif df_jira_norm is None:
+            elif st.session_state.df_jira is None:
                 with st.container(border=True):
                     st.info(
                         "\U0001F4E4 Carga el reporte de Jira en el sidebar "
@@ -516,39 +593,32 @@ elif modo == "Validacion Epicas vs Tareas":
     else:
         st.session_state.df_tareas = None
 
-    # Filtrado, agrupacion y cruce
-    st.session_state.df_epicas_filt = (
-        filtrar_epicas(st.session_state.df_epicas, st)
-        if st.session_state.df_epicas is not None
-        else None
-    )
-    st.session_state.df_tareas_filt = (
-        filtrar_tareas(st.session_state.df_tareas, st)
-        if st.session_state.df_tareas is not None
-        else None
-    )
-    st.session_state.df_tareas_agg = agrupar_tareas_por_parent(
-        st.session_state.df_tareas_filt,
-        st.session_state.df_epicas_filt,
-        st,
-    )
-
-    if (
-        st.session_state.df_epicas_filt is not None
-        and st.session_state.df_tareas_agg is not None
-    ):
-        st.session_state.df_epic_merge = cruzar_epicas_con_tareas(
-            st.session_state.df_epicas_filt, st.session_state.df_tareas_agg, st
-        )
-    else:
-        st.session_state.df_epic_merge = None
-
-    if st.session_state.df_epic_merge is not None:
-        with st.spinner("Aplicando validacion de Epicas..."):
-            st.session_state.df_epic_resultado = aplicar_validacion_epicas(
-                st.session_state.df_epic_merge, st
+    # Pipeline cacheado
+    if any([
+        st.session_state.df_epicas is not None,
+        st.session_state.df_tareas is not None,
+    ]):
+        with st.spinner("Procesando pipeline de validacion de epicas..."):
+            resultado_epic = _pipeline_epicas(
+                _hash_epicas="0" if st.session_state.df_epicas is None else _hash_bytes(
+                    archivo_epicas.getvalue() if archivo_epicas else b""
+                ),
+                df_epicas_raw=st.session_state.df_epicas,
+                _hash_tareas="0" if st.session_state.df_tareas is None else _hash_bytes(
+                    archivo_tareas.getvalue() if archivo_tareas else b""
+                ),
+                df_tareas_raw=st.session_state.df_tareas,
             )
+        st.session_state.df_epicas_filt = resultado_epic["df_epicas_filt"]
+        st.session_state.df_tareas_filt = resultado_epic["df_tareas_filt"]
+        st.session_state.df_tareas_agg = resultado_epic["df_tareas_agg"]
+        st.session_state.df_epic_merge = resultado_epic["df_epic_merge"]
+        st.session_state.df_epic_resultado = resultado_epic["df_epic_resultado"]
     else:
+        st.session_state.df_epicas_filt = None
+        st.session_state.df_tareas_filt = None
+        st.session_state.df_tareas_agg = None
+        st.session_state.df_epic_merge = None
         st.session_state.df_epic_resultado = None
 
     # Tabs
