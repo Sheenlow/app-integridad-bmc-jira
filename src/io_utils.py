@@ -2,9 +2,11 @@
 Funciones de entrada/salida: lectura robusta de archivos Excel, CSV y HTML.
 Incluye parser ZIP/XML para archivos xlsx corruptos.
 """
-
+import logging
 import pandas as pd
 from io import BytesIO
+
+logger = logging.getLogger(__name__)
 
 
 def detectar_columnas_duplicadas(df: pd.DataFrame, label: str, st_module=None) -> None:
@@ -40,13 +42,17 @@ def leer_archivo_robusto(
     Reinicia el puntero con seek(0) antes de cada intento.
     Lanza ValueError si todos los formatos fallan.
     """
+    fname = getattr(uploaded_file, "name", "<stream>")
+    logger.info("Leyendo archivo: %s (sheet=%s, fallback=%s)", fname, sheet_name, permitir_fallback)
     uploaded_file.seek(0)
     try:
         return pd.read_excel(uploaded_file, sheet_name=sheet_name, engine="openpyxl")
-    except Exception:
+    except Exception as exc_xlsx:
+        logger.debug("openpyxl fallo: %s", exc_xlsx)
         if not permitir_fallback:
             uploaded_file.seek(0)
             try:
+                logger.info("Intentando extraccion ZIP/XML...")
                 return _extraer_datos_xlsx_desde_zip(uploaded_file, sheet_name)
             except Exception:
                 raise
@@ -55,13 +61,15 @@ def leer_archivo_robusto(
         try:
             uploaded_file.seek(0)
             return pd.read_csv(uploaded_file, sep=None, engine="python", encoding=enc)
-        except Exception:
+        except Exception as exc_csv:
+            logger.debug("CSV (%s) fallo: %s", enc, exc_csv)
             continue
 
     try:
         uploaded_file.seek(0)
         return pd.read_html(uploaded_file)[0]
-    except Exception:
+    except Exception as exc_html:
+        logger.debug("HTML fallo: %s", exc_html)
         pass
 
     raise ValueError(

@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import hashlib
+from datetime import date
 from io import BytesIO
 
 from src.constants import (
@@ -470,7 +471,7 @@ if modo == "Conciliacion BMC vs Jira":
                     st.download_button(
                         label="\U0001F4E5 Descargar acciones pendientes (.xlsx)",
                         data=buf_acciones.getvalue(),
-                        file_name="acciones_pendientes_conciliacion.xlsx",
+                        file_name=f"acciones_pendientes_conciliacion_{date.today():%Y%m%d}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="dl_acciones_tab2",
                     )
@@ -561,7 +562,7 @@ if modo == "Conciliacion BMC vs Jira":
                 st.download_button(
                     label="\U0001F4E5 Descargar resultado_conciliacion.xlsx",
                     data=buffer.getvalue(),
-                    file_name="resultado_conciliacion.xlsx",
+                    file_name=f"resultado_conciliacion_{date.today():%Y%m%d}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                 )
@@ -717,7 +718,7 @@ elif modo == "Validacion Epicas vs Tareas":
                     st.download_button(
                         label="\U0001F4E5 Descargar solo pendientes (.xlsx)",
                         data=buf_tab2.getvalue(),
-                        file_name="validacion_epicas_pendientes.xlsx",
+                        file_name=f"validacion_epicas_pendientes_{date.today():%Y%m%d}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="dl_epic_tab2",
                     )
@@ -781,7 +782,7 @@ elif modo == "Validacion Epicas vs Tareas":
                 st.download_button(
                     label="\U0001F4E5 Descargar validacion_epicas.xlsx",
                     data=buffer.getvalue(),
-                    file_name="validacion_epicas.xlsx",
+                    file_name=f"validacion_epicas_{date.today():%Y%m%d}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                 )
