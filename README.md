@@ -1,32 +1,58 @@
 # BMC ↔ Jira — Conciliación
 
-Aplicación Streamlit para conciliar Work Orders y Problemas de BMC Remedy contra issues de Jira, aplicando reglas de negocio y validación de épicas.
+![Python](https://img.shields.io/badge/python-3.14+-blue?logo=python)
+![Streamlit](https://img.shields.io/badge/streamlit-1.58.0-FF4B4B?logo=streamlit)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Tests](https://img.shields.io/badge/tests-30%20passed-brightgreen)
 
-## Funcionalidades
+Aplicación Streamlit para conciliar **BMC Remedy** contra **Jira**, con dos modos de operación independientes:
 
-| Modo | Descripción |
-|------|-------------|
-| **Conciliación BMC vs Jira** | Cruza WO y PBI de BMC con issues de Jira, detecta sincronizados, faltantes, sobrantes y sugiere acciones (crear, actualizar, revisar). |
-| **Validación Épicas vs Tareas** | Valida consistencia entre épicas de Jira y sus tareas hijas: huérfanas, épicas cerradas con tareas abiertas, sugiere cierres. |
-
-## Requisitos
-
-- Python 3.14+
-- Dependencias: `streamlit==1.58.0`, `pandas==3.0.3`, `openpyxl==3.1.5`
+| Modo | Propósito |
+|------|-----------|
+| **Conciliación BMC vs Jira** | Cruza Work Orders y Problemas (PBI) de BMC con issues de Jira. Detecta registros sincronizados, faltantes y sobrantes, y sugiere acciones (crear, actualizar, revisar). |
+| **Validación Épicas vs Tareas** | Valida consistencia entre épicas de Jira y sus tareas hijas. Detecta huérfanas, épicas cerradas con tareas abiertas y sugiere cierres. |
 
 ## Instalación
 
+Requisitos: **Python 3.14+**.
+
 ```powershell
+git clone <repo-url>
+cd app-integracion
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-## Ejecución
+## Uso
 
 ```powershell
 streamlit run app.py
 ```
+
+1. Selecciona el modo en la barra lateral: **Conciliación** o **Validación Épicas**.
+2. Descarga los reportes desde los enlaces provistos (BMC / Jira).
+3. Carga los archivos `.xlsx` o `.csv` en los uploaders.
+4. Navega por las pestañas para revisar resultados y exportar.
+
+### Formato esperado de reportes
+
+#### Conciliación BMC vs Jira
+
+| Fuente | Columnas requeridas |
+|--------|-------------------|
+| **BMC — WO** | `ID Propuesta`, `Titulo de WO`, columna de estado |
+| **BMC — PBI** | `Problema`, `Descripcion`, columna de estado |
+| **Jira** | `Clave`, `Summary`, `BMC_ID`, columna de estado, `Persona asignada`, `Categoria de estado`, `Celula` |
+
+#### Validación Épicas vs Tareas
+
+| Fuente | Columnas requeridas |
+|--------|-------------------|
+| **Épicas (Jira)** | `Tipo de Incidencia` (Epic/Épica/Epica), `Clave`, columna de estado |
+| **Tareas (Jira)** | `Tipo de Incidencia`, `parent`, columna de estado |
+
+La columna de estado se detecta automáticamente probando los nombres: `Estado`, `Status`, `state`, `estado`.
 
 ## Tests
 
@@ -34,29 +60,15 @@ streamlit run app.py
 python -m pytest tests/ -v
 ```
 
-## Formato esperado de reportes
-
-### BMC — Work Orders (WO)
-Columnas requeridas: `ID Propuesta`, `Titulo de WO`, una columna de estado (`Estado`, `Status`, `state` o `estado`)
-
-### BMC — Problemas (PBI)
-Columnas requeridas: `Problema`, `Descripcion`, una columna de estado
-
-### Jira (conciliación)
-Columnas requeridas: `Clave`, `Summary`, `BMC_ID`, una columna de estado, `Persona asignada`, `Categoria de estado`, `Celula`
-
-### Jira — Épicas y Tareas
-Columnas requeridas: `Tipo de Incidencia` (con valores `Epic`/`Épica`/`Epica`), `Clave`, `parent`, una columna de estado
-
 ## Estructura del proyecto
 
 ```
-app.py              # Orquestación Streamlit
+app.py              # Orquestación Streamlit (UI + caché)
 src/
   constants.py      # Nombres de columnas, equivalencias, URLs, versión
-  io_utils.py       # Lectura robusta de archivos (Excel, CSV, HTML, ZIP/XML)
-  transform.py      # Normalización, merge, columnas de salida
-  rules.py          # Reglas de negocio (vectorizadas)
+  io_utils.py       # Lectura robusta (Excel, CSV, HTML, ZIP/XML corruptos)
+  transform.py      # Normalización, unificación y cruce BMC ↔ Jira
+  rules.py          # Reglas de negocio vectorizadas
   epics.py          # Filtrado, agrupación y cruce de épicas vs tareas
   excel_export.py   # Formateo de Excel para descargas
   ui.py             # CSS, session state, componentes UI compartidos
@@ -67,3 +79,7 @@ tests/
   test_epics.py     # Tests de validación de épicas
   test_io.py        # Tests de entrada/salida
 ```
+
+## Licencia
+
+MIT
