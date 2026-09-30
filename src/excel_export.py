@@ -1,13 +1,26 @@
 """
-Formateo de archivos Excel para exportaciones.
+Formateo y generacion de archivos Excel para exportaciones.
 """
 import pandas as pd
+
+from .styles import clasificar_accion, COLORES_ACCION
+
+
+def _fill_accion(valor):
+    """Devuelve un PatternFill segun la categoria de accion, o None si no aplica."""
+    from openpyxl.styles import PatternFill
+    categoria = clasificar_accion(valor)
+    if categoria is None:
+        return None
+    bg, _ = COLORES_ACCION[categoria]
+    # openpyxl espera aRGB (8 digitos): anteponemos el alfa completo 'FF'.
+    return PatternFill("solid", fgColor="FF" + bg)
 
 
 def formatear_excel(writer, df: pd.DataFrame, sheet_name: str, columna_color: str | None = None):
     """
     Aplica formato al Excel exportado:
-    - Auto-ajuste de columnas
+    - Auto-ajuste de columnas (robusto a DataFrames vacios)
     - Header con fondo oscuro y texto blanco
     - Freeze en primera fila
     - Bordes finos
@@ -20,10 +33,9 @@ def formatear_excel(writer, df: pd.DataFrame, sheet_name: str, columna_color: st
 
     # Auto-ajuste de columnas
     for i, col in enumerate(df.columns, 1):
-        max_len = max(
-            df[col].astype(str).str.len().max(),
-            len(str(col)),
-        )
+        largos = df[col].astype(str).str.len()
+        max_len = largos.max() if not largos.empty else 0
+        max_len = max(max_len, len(str(col)))
         ws.column_dimensions[get_column_letter(i)].width = min(max_len + 3, 50)
 
     # Header
@@ -47,23 +59,21 @@ def formatear_excel(writer, df: pd.DataFrame, sheet_name: str, columna_color: st
             if cell.alignment and not cell.alignment.horizontal:
                 cell.alignment = Alignment(vertical="center")
 
-    # Color condicional en columna de estado
+    # Color condicional en columna de accion/validacion
     if columna_color and columna_color in df.columns:
         col_idx = list(df.columns).index(columna_color) + 1
-        colores = {
-            "OK": PatternFill("solid", fgColor="ecfdf5"),
-            "Revisar": PatternFill("solid", fgColor="eff6ff"),
-            "Falta": PatternFill("solid", fgColor="fef3c7"),
-            "Sobra": PatternFill("solid", fgColor="fee2e2"),
-            "Actualizar": PatternFill("solid", fgColor="fef2f2"),
-            "Epica sin": PatternFill("solid", fgColor="fef3c7"),
-            "Tarea sin": PatternFill("solid", fgColor="fef3c7"),
-            "Todas": PatternFill("solid", fgColor="eff6ff"),
-        }
         for row in range(2, ws.max_row + 1):
             cell = ws.cell(row=row, column=col_idx)
-            val = str(cell.value or "")
-            for prefix, fill in colores.items():
-                if val.startswith(prefix):
-                    cell.fill = fill
-                    break
+            fill = _fill_accion(cell.value)
+            if fill is not None:
+                cell.fill = fill
+
+
+def crear_excel(df: pd.DataFrame, sheet_name: str, columna_color: str | None = None) -> bytes:
+    """Genera un archivo Excel en memoria (con formato) y devuelve sus bytes."""
+    from io import BytesIO
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name=sheet_name)
+        formatear_excel(writer, df, sheet_name, columna_color=columna_color)
+    return buffer.getvalue()

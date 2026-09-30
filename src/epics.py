@@ -3,6 +3,7 @@ Validacion Epicas vs Tareas: filtrado, agrupacion y cruce.
 """
 import pandas as pd
 
+from .utils import normalizar_texto
 from .constants import (
     COL_TIPO_INCIDENCIA, COL_CLAVE_JIRA, COL_PARENT,
     COL_ESTADO, COL_ESTADO_CANDIDATOS,
@@ -22,7 +23,8 @@ def filtrar_epicas(df: pd.DataFrame, st_module=None) -> pd.DataFrame | None:
                 f"Columnas disponibles: {df.columns.tolist()}"
             )
         return None
-    mask = df[COL_TIPO_INCIDENCIA].isin(["Epic", "Epica", "Epica"])
+    tipos = df[COL_TIPO_INCIDENCIA].map(normalizar_texto)
+    mask = tipos.isin(["epic", "epica"])
     return df[mask].copy()
 
 
@@ -35,7 +37,8 @@ def filtrar_tareas(df: pd.DataFrame, st_module=None) -> pd.DataFrame | None:
                 f"Columnas disponibles: {df.columns.tolist()}"
             )
         return None
-    mask = ~df[COL_TIPO_INCIDENCIA].isin(["Epic", "Epica", "Epica"])
+    tipos = df[COL_TIPO_INCIDENCIA].map(normalizar_texto)
+    mask = ~tipos.isin(["epic", "epica"])
     return df[mask].copy()
 
 

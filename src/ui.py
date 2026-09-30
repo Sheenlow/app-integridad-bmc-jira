@@ -116,7 +116,9 @@ CSS_TECH_THEME = """
     }
 
     /* --- Hide Streamlit branding --- */
-    #MainMenu, footer, header[data-testid="stHeader"] {
+    /* NOTA: no ocultar header[data-testid="stHeader"] completo: adentro vive
+       el boton stExpandSidebarButton que reabre el sidebar colapsado. */
+    #MainMenu, footer, [data-testid="stAppDeployButton"] {
         display: none;
     }
 

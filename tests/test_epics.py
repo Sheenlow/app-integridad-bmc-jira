@@ -135,3 +135,52 @@ class TestAgrupacionTareas:
     def test_agrupar_sin_columna_parent(self):
         df = pd.DataFrame({"Clave": ["T1"], "Estado": ["Done"]})
         assert agrupar_tareas_por_parent(df) is None
+
+
+class TestNormalizacionEpicas:
+
+    def test_normalizar_reportes_en_ingles(self):
+        """Un reporte exportado por Jira (encabezados en ingles) debe normalizarse."""
+        from src.transform import normalizar_epicas_tareas
+        df = pd.DataFrame({
+            "Issue Type": ["Epic", "Epic"],
+            "Key": ["EP-1", "EP-2"],
+            "Status": ["In Progress", "Done"],
+            "Summary": ["Login SSO", "Reportes"],
+        })
+        norm = normalizar_epicas_tareas(df)
+        assert "Tipo de Incidencia" in norm.columns
+        assert "Clave" in norm.columns
+        assert "Estado" in norm.columns
+        assert "Resumen" in norm.columns
+        assert len(filtrar_epicas(norm)) == 2
+
+    def test_normalizar_tareas_con_parent(self):
+        """La columna 'Parent' (export de Jira) debe agruparse por epica."""
+        from src.transform import normalizar_epicas_tareas
+        df = pd.DataFrame({
+            "Issue Type": ["Task", "Task"],
+            "Key": ["T-1", "T-2"],
+            "Parent": ["EP-1", "EP-1"],
+            "Status": ["Done", "Done"],
+        })
+        norm = normalizar_epicas_tareas(df)
+        agg = agrupar_tareas_por_parent(filtrar_tareas(norm))
+        assert COL_CLAVE_JIRA in agg.columns
+        assert "Tareas Totales" in agg.columns
+        assert agg[agg[COL_CLAVE_JIRA] == "EP-1"]["Tareas Totales"].iloc[0] == 2
+
+    def test_normalizar_epica_con_tilde(self):
+        """El tipo 'Épica' (con tilde) debe contarse como epic."""
+        df = pd.DataFrame({
+            "Tipo de Incidencia": ["Épica", "Task", "Épica", "Story"],
+            "Clave": ["E1", "T1", "E2", "S1"],
+        })
+        assert len(filtrar_epicas(df)) == 2
+        assert len(filtrar_tareas(df)) == 2
+
+    def test_normalizar_dataframe_vacio(self):
+        """Un DataFrame vacio devuelve None, no un error."""
+        from src.transform import normalizar_epicas_tareas
+        assert normalizar_epicas_tareas(pd.DataFrame()) is None
+        assert normalizar_epicas_tareas(None) is None

@@ -26,11 +26,13 @@ Dos pipelines independientes que comparten UI pero no session state:
 
 Cada pipeline tiene su propia función de limpieza (`limpiar_datos_conciliacion`, `limpiar_datos_epicas`). Al modificar uno, verificar que el otro no se rompa.
 
-El cache de Streamlit (`_pipeline_conciliacion`, `_pipeline_epicas`) usa hashes SHA-256 del contenido de archivos como claves. Los parámetros `_hash_*` (con prefijo `_`) se excluyen del display de la UI pero participan en la clave de cache.
+El cache de Streamlit (`_pipeline_conciliacion`, `_pipeline_epicas`, en `src/views.py`) usa hashes SHA-256 del contenido de archivos como claves. Los parámetros `_hash_*` (con prefijo `_`) se excluyen del display de la UI pero participan en la clave de cache.
+
+La UI esta modularizada: `app.py` es delgada (config + orquestacion) y el renderizado vive en `src/views.py`. La paleta de colores de acciones esta centralizada en `src/styles.py`.
 
 ## Qué no modificar
 - No cambiar nombres de columnas en `src/constants.py` sin revisar el impacto en las funciones de normalización y merge.
-- Las reglas de negocio en `src/rules.py` dependen del diccionario `EQUIVALENCIAS` y del lookup inverso `_JIRA_A_BMC` precomputado al importar el módulo.
+- Las reglas de negocio en `src/rules.py` usan las listas de estados centralizadas en `src/constants.py` (`PBI_ESTADOS_*`, `WO_ESTADOS_*`, `JIRA_*`, `PROCESO_*`) y los mensajes de acción (`ACCION_*`).
 - El parser ZIP/XML en `src/io_utils.py` (`_extraer_datos_xlsx_desde_zip`) es código delicado; modificar solo si hay un test que lo cubra.
 - La detección de columna de grupo en WO busca columnas con patrón `select__<número>` (`_detectar_columna_select` en `transform.py`), generado dinámicamente por BMC.
 
@@ -39,7 +41,7 @@ El cache de Streamlit (`_pipeline_conciliacion`, `_pipeline_epicas`) usa hashes 
 - Mensajes de estado (toast) con prefijo `✅` o `❌`.
 - La versión se define en `src/constants.py` (`VERSION`).
 - Usar `st_module` como parámetro opcional para funciones que emiten UI (toast, warning), permitiendo testing sin Streamlit.
-- La columna de estado se detecta por candidatos: `["Estado", "Status", "state", "estado"]` — aplica tanto en `transform.py` (`_renombrar_columna_estado`) como en `epics.py`.
+- Los encabezados de BMC y Jira se normalizan de forma defensiva (tildes/caso/alias) via `normalizar_texto` (en `src/utils.py`) + `_mapear_alias` (en `src/transform.py`), con `ALIASES_BMC` y `ALIASES_JIRA` centralizados en `src/constants.py`. En `epics.py` la columna de estado se detecta por candidatos: `["Estado", "Status", "state", "estado"]`.
 
 ## Lectura de archivos
 - `leer_archivo_robusto` intenta Excel → CSV (varios encodings) → HTML en cascada.

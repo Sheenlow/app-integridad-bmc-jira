@@ -48,14 +48,17 @@ def leer_archivo_robusto(
     try:
         return pd.read_excel(uploaded_file, sheet_name=sheet_name, engine="openpyxl")
     except Exception as exc_xlsx:
-        logger.debug("openpyxl fallo: %s", exc_xlsx)
+        logger.warning("openpyxl no pudo leer '%s': %s", fname, exc_xlsx)
         if not permitir_fallback:
             uploaded_file.seek(0)
             try:
                 logger.info("Intentando extraccion ZIP/XML...")
                 return _extraer_datos_xlsx_desde_zip(uploaded_file, sheet_name)
-            except Exception:
-                raise
+            except Exception as exc_zip:
+                raise ValueError(
+                    f"No se pudo leer '{fname}' como Excel. "
+                    f"openpyxl: {exc_xlsx} | extraccion ZIP/XML: {exc_zip}"
+                ) from exc_zip
 
     for enc in ["utf-8", "latin-1", "cp1252"]:
         try:
@@ -73,7 +76,8 @@ def leer_archivo_robusto(
         pass
 
     raise ValueError(
-        "No se pudo leer el archivo en ningun formato (excel, csv, html)."
+        f"No se pudo leer el archivo '{fname}' en ningun formato "
+        f"(excel, csv, html). Causa raiz (openpyxl): {exc_xlsx}"
     )
 
 
