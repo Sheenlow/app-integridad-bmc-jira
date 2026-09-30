@@ -4,6 +4,8 @@ Proyecto Streamlit local para conciliar BMC Remedy vs Jira. Uso exclusivo local.
 
 ## Cómo ejecutar
 
+Requiere **Python 3.14+** (dependencias pineadas en `requirements.txt`).
+
 ```powershell
 .\venv\Scripts\Activate.ps1
 streamlit run app.py
@@ -15,7 +17,9 @@ streamlit run app.py
 python -m pytest tests/ -v
 ```
 
-Todos los tests incluyen `sys.path.insert(0, ".")` al inicio. Al crear nuevos tests, seguir ese patrón aunque `pytest.ini` ya declare `pythonpath = ["."]`.
+`pytest` está pineado en `requirements.txt`; tras `pip install -r requirements.txt` ya se puede testear. Todos los tests incluyen `sys.path.insert(0, ".")` al inicio. Al crear nuevos tests, seguir ese patrón aunque `pytest.ini` ya declare `pythonpath = ["."]`.
+
+Los tests importan solo las capas de lógica pura (`transform`, `rules`, `epics`, `io_utils`, `excel_export`, `constants`) — **no** importan `views.py`, `ui.py` ni `streamlit`. El renderizado de UI no está cubierto por tests; la lógica de negocio sí.
 
 ## Arquitectura
 
@@ -24,7 +28,7 @@ Dos pipelines independientes que comparten UI pero no session state:
 - **Conciliación BMC vs Jira** → `transform.py` + `rules.py` → state keys: `df_bmc_wo`, `df_bmc_pbi`, `df_jira`, `df_bmc_total`, `df_merge`, `df_resultado`
 - **Validación Épicas vs Tareas** → `epics.py` + `rules.py` (validación épicas) → state keys: `df_epicas`, `df_tareas`, `df_epicas_filt`, `df_tareas_filt`, `df_tareas_agg`, `df_epic_merge`, `df_epic_resultado`
 
-Cada pipeline tiene su propia función de limpieza (`limpiar_datos_conciliacion`, `limpiar_datos_epicas`). Al modificar uno, verificar que el otro no se rompa.
+Cada pipeline tiene su propia función de limpieza (`limpiar_datos_conciliacion`, `limpiar_datos_epicas`, ambas en `src/ui.py`). Al modificar uno, verificar que el otro no se rompa.
 
 El cache de Streamlit (`_pipeline_conciliacion`, `_pipeline_epicas`, en `src/views.py`) usa hashes SHA-256 del contenido de archivos como claves. Los parámetros `_hash_*` (con prefijo `_`) se excluyen del display de la UI pero participan en la clave de cache.
 
@@ -41,7 +45,7 @@ La UI esta modularizada: `app.py` es delgada (config + orquestacion) y el render
 - Mensajes de estado (toast) con prefijo `✅` o `❌`.
 - La versión se define en `src/constants.py` (`VERSION`).
 - Usar `st_module` como parámetro opcional para funciones que emiten UI (toast, warning), permitiendo testing sin Streamlit.
-- Los encabezados de BMC y Jira se normalizan de forma defensiva (tildes/caso/alias) via `normalizar_texto` (en `src/utils.py`) + `_mapear_alias` (en `src/transform.py`), con `ALIASES_BMC` y `ALIASES_JIRA` centralizados en `src/constants.py`. En `epics.py` la columna de estado se detecta por candidatos: `["Estado", "Status", "state", "estado"]`.
+- Los encabezados de BMC y Jira se normalizan de forma defensiva (tildes/caso/alias) via `normalizar_texto` (en `src/utils.py`) + `_mapear_alias` (en `src/transform.py`), con `ALIASES_BMC` y `ALIASES_JIRA` centralizados en `src/constants.py`. La columna de estado se detecta por candidatos `["Estado", "Status", "state", "estado"]`, definidos como `COL_ESTADO_CANDIDATOS` en `src/constants.py` (no duplicar la lista).
 
 ## Lectura de archivos
 - `leer_archivo_robusto` intenta Excel → CSV (varios encodings) → HTML en cascada.
